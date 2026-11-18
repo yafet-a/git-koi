@@ -232,7 +232,10 @@ SC.night = (t, T) => {
   const ph = TAU * t / N;
   if (season === "summer") for (const [x, y, r, ang] of [[14,18,11,0.6],[104,26,9,2.4],[100,100,13,4.0],[20,104,10,5.2],[62,114,8,1.4]]) { const bob = Math.sin(TAU*t/N + x) * 0.8; lily(x, y + bob, r, ang, hx("#1d3f27"), hx("#142f1c")); }
   if (wet) { ctx.globalAlpha = 0.3; drawMoon(t, ph); ctx.globalAlpha = 1; } else drawMoon(t, ph); // on a rainy night the moon shows faintly through cloud
-  lights.forEach((s, n) => { if (!s.water) return; const sx0 = s.x - G.off, sy0 = s.y - G.off, flick = 0.85 + 0.15*Math.sin(ph*6 + n*1.7); glow(sx0, sy0 + 10, 26, s.col, 0.22*flick); for (let k = 0; k < 9; k++) { const y = sy0 + 8 + k*4, w = 1 + Math.round(2*Math.abs(Math.sin(ph*2 + k + n))), x = sx0 + Math.round(1.5*Math.sin(ph*3 + k*0.9 + n)); line(x - w, y, x + w, y, s.col, Math.max(0, 0.75 - k*0.08)); } });
+  // the lamps' glow lights the water itself, so it counts as water: the koi swims through it, not under it
+  lights.forEach((s, n) => { if (s.water) glow(s.x - G.off, s.y - G.off + 10, 26, s.col, 0.22*(0.85 + 0.15*Math.sin(ph*6 + n*1.7))); });
+  basectx.drawImage(sctx.canvas, 0, 0);
+  lights.forEach((s, n) => { if (!s.water) return; const sx0 = s.x - G.off, sy0 = s.y - G.off; for (let k = 0; k < 9; k++) { const y = sy0 + 8 + k*4, w = 1 + Math.round(2*Math.abs(Math.sin(ph*2 + k + n))), x = sx0 + Math.round(1.5*Math.sin(ph*3 + k*0.9 + n)); line(x - w, y, x + w, y, s.col, Math.max(0, 0.75 - k*0.08)); } });
   if (wet) { const r = rng(13); for (let i = 0; i < 22; i++) { const sx = 4 + r()*120, sy = 4 + r()*120, off = Math.floor(r()*30); const k = ((t + off) % 30) / 30; if (k < 0.93) ring(sx, sy, 0.5 + k*10, [150,175,215], 0.75*(1-k)); if ((t+off)%30 >= 28) P(sx, sy - (29 - (t+off)%30)*3, [190,205,235], 0.8); } }
   if (season === "winter") { const r = rng(11); for (let i = 0; i < 30; i++) { const x0 = r()*L, y0 = r()*L; const x = (x0 + 3*Math.sin(TAU*t/N*2 + i)) % L, y = (y0 + L*t/N) % (L + 8) - 4; P(x, y, [220,230,250], i % 3 ? 0.65 : 0.85); } }
   if (season === "autumn") fallers(T, 6, 5, LEAVES, ["#7a3a24","#8a5a2a","#9a7a3a"].map(c => { const a = hx(c); return {a, b: a.map(v => v * 0.65 | 0)}; }), [150,170,200], 20, state.drops === "random");
