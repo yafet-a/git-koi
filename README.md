@@ -43,6 +43,40 @@ the Rust library underneath is published on crates.io.
 Action in a profile workflow, the command line, and the library. The API is
 documented on [docs.rs](https://docs.rs/git-koi).
 
+## Pond scenes
+
+This fork can swim the koi through a pond that changes with the seasons. The
+Action takes two extra inputs:
+
+- `scene`: `none` (the default, the plain koi), `auto`, or one of `spring`,
+  `summer`, `autumn`, `winter`, `rain`, and `night`. `auto` follows the date:
+  blossom petals in spring, lily pads in summer, falling leaves in autumn, ice
+  and snow in winter, and rain on about one day in seven outside summer.
+- `night`: `true` also draws `koi-night.gif`, the koi under street lamps, to
+  show viewers who use dark mode.
+
+With `body: auto`, the koi takes the body that suits the scene: asagi in
+spring, gold in summer and rain, tea in autumn, black in winter, and platinum
+at night.
+
+```yaml
+- uses: yafet-a/git-koi@main
+  with:
+    body: auto
+    scene: auto
+    night: "true"
+```
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="koi/koi-night.gif" />
+  <img src="koi/koi.gif" width="256" alt="My koi" />
+</picture>
+```
+
+The scenes are drawn by [scenes/pond.py](scenes/pond.py), which needs Python 3
+and Pillow; the Action installs both for you.
+
 ## Author
 
 **Anthony Yalong**

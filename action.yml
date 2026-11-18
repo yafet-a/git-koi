@@ -11,8 +11,21 @@ inputs:
     description: Account whose koi to draw.
     default: ${{ github.repository_owner }}
   body:
-    description: Body color, one of white, black, asagi, tea, gold, or platinum.
+    description:
+      Body color, one of white, black, asagi, tea, gold, or platinum, or auto
+      to use the color that suits the scene.
     default: white
+  scene:
+    description:
+      Pond to swim the koi through. none keeps the plain koi; auto picks the
+      season from the date (and rain on about one day in seven outside
+      summer); or name one of spring, summer, autumn, winter, rain, or night.
+    default: none
+  night:
+    description:
+      Also draw koi-night.gif, the koi under street lamps, for viewers in dark
+      mode. true or false.
+    default: "false"
   output-dir:
     description:
       Folder, relative to the workspace, that receives koi.gif, koi.png, and
@@ -76,11 +89,54 @@ runs:
         KOI_LOGIN: ${{ inputs.login }}
       run:
         git-koi collect "$KOI_LOGIN" --output "$RUNNER_TEMP/koi-snapshot.json"
+    - name: Set up the pond renderer
+      if: inputs.scene != 'none' || inputs.night == 'true'
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/pond-venv"
+        if [ -x "$RUNNER_TEMP/pond-venv/bin/python" ]; then
+          py="$RUNNER_TEMP/pond-venv/bin/python"
+        else
+          py="$RUNNER_TEMP/pond-venv/Scripts/python.exe"
+        fi
+        "$py" -m pip install --quiet --disable-pip-version-check "pillow==11.3.0"
+        echo "POND_PY=$py" >> "$GITHUB_ENV"
+    - name: Choose the scene
+      id: choose
+      if: inputs.scene != 'none'
+      shell: bash
+      env:
+        KOI_SCENE: ${{ inputs.scene }}
+      run: |
+        if [ "$KOI_SCENE" = auto ]; then
+          "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" plan >> "$GITHUB_OUTPUT"
+        else
+          "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" plan --scene "$KOI_SCENE" >> "$GITHUB_OUTPUT"
+        fi
     - name: Render the koi
       shell: bash
       env:
-        KOI_BODY: ${{ inputs.body }}
+        KOI_BODY: ${{ inputs.body != 'auto' && inputs.body || steps.choose.outputs.body || 'white' }}
         KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
       run:
         git-koi render "$RUNNER_TEMP/koi-snapshot.json" --output-dir
         "$KOI_OUTPUT_DIR" --body "$KOI_BODY"
+    - name: Swim the koi through the pond
+      if: inputs.scene != 'none'
+      shell: bash
+      env:
+        KOI_SCENE: ${{ steps.choose.outputs.scene }}
+        KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" render --koi "$KOI_OUTPUT_DIR/koi.gif" \
+          --scene "$KOI_SCENE" --out "$KOI_OUTPUT_DIR/koi.gif"
+    - name: Draw the night koi
+      if: inputs.night == 'true'
+      shell: bash
+      env:
+        KOI_BODY: ${{ inputs.body != 'auto' && inputs.body || 'platinum' }}
+        KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        git-koi render "$RUNNER_TEMP/koi-snapshot.json" --output-dir "$RUNNER_TEMP/koi-night" --body "$KOI_BODY"
+        "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" render --koi "$RUNNER_TEMP/koi-night/koi.gif" \
+          --scene night --out "$KOI_OUTPUT_DIR/koi-night.gif"
