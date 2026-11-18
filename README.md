@@ -1,11 +1,12 @@
 # Git koi, with a pond
 
-> This is a fork of [yalongwastaken/git-koi](https://github.com/yalongwastaken/git-koi)
-> by Anthony Yalong, which draws a pixel-art koi from a GitHub account's
-> activity. **This fork gives the koi a pond to swim in**: a garden that
-> changes with the seasons, rain and snow, a night pond for viewers in dark
-> mode, and a set of styles to choose from. The koi itself is drawn exactly as
-> the original draws it; nothing in the Rust code is changed.
+> This is a fork of
+> [yalongwastaken/git-koi](https://github.com/yalongwastaken/git-koi) by Anthony
+> Yalong, which draws a pixel-art koi from a GitHub account's activity. **This
+> fork gives the koi a pond to swim in**: a garden that changes with the
+> seasons, rain and snow, a night pond for viewers in dark mode, and a set of
+> styles to choose from. The koi itself is drawn exactly as the original draws
+> it; nothing in the Rust code is changed.
 
 <table>
 <tr>
@@ -20,15 +21,15 @@
 
 ## Using the pond
 
-Add the pond options to the git-koi step in your profile repository's
-workflow (the original setup is in [docs/getting-started.md](docs/getting-started.md)):
+Add the pond options to the git-koi step in your profile repository's workflow
+(the original setup is in [docs/getting-started.md](docs/getting-started.md)):
 
 ```yaml
-- uses: yafet-a/git-koi@main   # pin a commit SHA for anything you rely on
+- uses: yafet-a/git-koi@main # pin a commit SHA for anything you rely on
   with:
-    body: auto       # the koi colour that suits each season
-    scene: auto      # follow the calendar
-    night: "true"    # also draw koi-night.gif for dark mode
+    body: auto # the koi colour that suits each season
+    scene: auto # follow the calendar
+    night: "true" # also draw koi-night.gif for dark mode
 ```
 
 and show the right GIF for each viewer's theme in your README:
@@ -40,17 +41,18 @@ and show the right GIF for each viewer's theme in your README:
 </picture>
 ```
 
-Commit `koi/koi-night.gif` alongside `koi/koi.gif` in the workflow's commit step.
+Commit `koi/koi-night.gif` alongside `koi/koi.gif` in the workflow's commit
+step.
 
 ### How each pond is decided
 
 - **The koi** is git-koi's, redrawn every night from your public activity:
-  languages colour it, contributions grow it, streaks mark it, and the day
-  that just ended decides how it swims.
-- **The season** comes from the date the job runs (UTC): March to May
-  spring, June to August summer, September to November autumn, December to
-  February winter. Each season dresses the pond: blossom, lily pads, falling
-  leaves, or ice and snow.
+  languages colour it, contributions grow it, streaks mark it, and the day that
+  just ended decides how it swims.
+- **The season** comes from the date the job runs (UTC): March to May spring,
+  June to August summer, September to November autumn, December to February
+  winter. Each season dresses the pond: blossom, lily pads, falling leaves, or
+  ice and snow.
 - **The weather** is laid over the season. With `weather: auto` it rains on
   about one day in seven, in any season but winter, which snows instead. Which
   days is decided by a hash of the date, so it falls in no pattern and a rerun
@@ -65,28 +67,27 @@ Commit `koi/koi-night.gif` alongside `koi/koi.gif` in the workflow's commit step
 
 ### Every option
 
-| Input | Values | Default |
-| --- | --- | --- |
-| `scene` | `none` (the plain koi), `auto`, `spring`, `summer`, `autumn`, `winter` | `none` |
-| `weather` | `auto`, `clear`, `rain` | `auto` |
-| `night` | `"true"`, `"false"` | `"false"` |
-| `body` | `auto`, `white`, `black`, `asagi`, `tea`, `gold`, `platinum` | `white` |
-| `garden` | `garden`, `islands`, `bank`, `gravel`, `deck`, `deckdark`, `deckold`, `deckgrey`, `deckwalnut`, `mist` | `garden` |
-| `size` | `wide` (352 px, koi full size), `compact` (256 px, koi at 90%) | `wide` |
-| `lights` | `reflect`, `onefloat`, `floating`, `euro`, `toro`, `chinese`, `string`, `none` | `reflect` |
-| `moon` | `lines`, `round`, `halo`, `crescent`, `glade`, `none` | `lines` |
-| `depth` | `under` (beneath lily pads, leaves and reflections), `top` | `under` |
-| `drops` | `random`, `fixed` | `random` |
-| `koi` | `one`, `three` | `one` |
+| Input     | Values                                                                                                 | Default   |
+| --------- | ------------------------------------------------------------------------------------------------------ | --------- |
+| `scene`   | `none` (the plain koi), `auto`, `spring`, `summer`, `autumn`, `winter`                                 | `none`    |
+| `weather` | `auto`, `clear`, `rain`                                                                                | `auto`    |
+| `night`   | `"true"`, `"false"`                                                                                    | `"false"` |
+| `body`    | `auto`, `white`, `black`, `asagi`, `tea`, `gold`, `platinum`                                           | `white`   |
+| `garden`  | `garden`, `islands`, `bank`, `gravel`, `deck`, `deckdark`, `deckold`, `deckgrey`, `deckwalnut`, `mist` | `garden`  |
+| `size`    | `wide` (352 px, koi full size), `compact` (256 px, koi at 90%)                                         | `wide`    |
+| `lights`  | `reflect`, `onefloat`, `floating`, `euro`, `toro`, `chinese`, `string`, `none`                         | `reflect` |
+| `moon`    | `lines`, `round`, `halo`, `crescent`, `glade`, `none`                                                  | `lines`   |
+| `depth`   | `under` (beneath lily pads, leaves and reflections), `top`                                             | `under`   |
+| `drops`   | `random`, `fixed`                                                                                      | `random`  |
+| `koi`     | `one`, `three`                                                                                         | `one`     |
 
-Everything outside the pond is transparent, so it sits on GitHub's page in
-light or dark mode rather than as a square.
+Everything outside the pond is transparent, so it sits on GitHub's page in light
+or dark mode rather than as a square.
 
 ### The options side by side
 
-To try every combination live, download
-[docs/explorer.html](docs/explorer.html) and open it in a browser. It runs the
-same drawing code as the Action.
+To try every combination live, download [docs/explorer.html](docs/explorer.html)
+and open it in a browser. It runs the same drawing code as the Action.
 
 **Seasons** (`scene`)
 
@@ -98,15 +99,18 @@ same drawing code as the Action.
 ![Rain in spring, summer and autumn](docs/scenes/rain-day.png)
 ![Rainy nights in spring, summer and autumn](docs/scenes/rain-night.png)
 
-**Gardens** (`garden`): moss bank and islands, islands only, bank only, raked gravel, and no edge
+**Gardens** (`garden`): moss bank and islands, islands only, bank only, raked
+gravel, and no edge
 
 ![The gardens](docs/scenes/gardens.png)
 
-**Decks** (`garden`), here in the rain: oak, dark oak, old mossy oak, weathered grey, walnut with corner posts
+**Decks** (`garden`), here in the rain: oak, dark oak, old mossy oak, weathered
+grey, walnut with corner posts
 
 ![The decks](docs/scenes/decks.png)
 
-**Night lights** (`lights`): reflections only, one floating lantern, several, old European lamps, stone lanterns, paper lanterns, string lights
+**Night lights** (`lights`): reflections only, one floating lantern, several,
+old European lamps, stone lanterns, paper lanterns, string lights
 
 ![The night lights](docs/scenes/lights.png)
 
@@ -128,16 +132,27 @@ same drawing code as the Action.
 
 ### What this fork changes
 
-- **`action.yml`** gains the inputs above. They all default to off or to the
-  original behaviour, so the Action does exactly what git-koi does unless you
-  set `scene`.
-- **`scenes/pond.html`** draws the pond. It is the same page as
-  `docs/explorer.html`, so what you see there is what the Action draws.
-- **`scenes/pond.py`** picks the season and weather, draws each koi it needs
-  with git-koi's own released program (checksum-verified, as upstream does),
-  has headless Chrome render the page's 120 frames, and writes the GIF.
-- **Requirements:** Python 3 and Chrome or Chromium on the runner. GitHub's
-  hosted runners have both; the Action installs Pillow for itself.
+- **`src/pond.rs`** (new) draws the pond around the koi frames git-koi already
+  renders, in the same process: the water, the season's dressing, rain and snow,
+  the garden or deck, the lamps and moon at night, and the koi under the
+  surface. Like the rest of the crate it is deterministic: the date is the
+  snapshot's observation date, and nothing reads the clock.
+- **`git-koi pond`** (new subcommand) writes `koi.gif`, and with `--night` also
+  `koi-night.gif`. Run `git-koi pond --help` for every flag.
+- **`output::encode_pond_gif`** (new) encodes the pond with one shared
+  255-colour palette (the koi's own GIF uses exact colours, but a pond has
+  gradients and glow).
+- **`action.yml`** gains the inputs above and calls `git-koi pond`. With
+  `scene: none`, the default, it does exactly what the original does.
+- **Releases** come from this fork, so the Action downloads this fork's
+  binaries; the release workflow no longer publishes the crate, whose name
+  belongs to the original project.
+- **`scenes/pond.html`** is the explorer, a JavaScript twin of `src/pond.rs`
+  drawn by the same rules; `scenes/build_explorer.py` embeds koi frames into it
+  as `docs/explorer.html`.
+
+The Rust code in the original crate is untouched apart from registering the new
+module and the new subcommand.
 
 ---
 

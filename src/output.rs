@@ -7,11 +7,12 @@
 //! light and dark page colors.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt;
 
 use crate::motion::FRAMES_PER_SECOND;
+use crate::pond::PondFrame;
 use crate::render::{FRAME_HEIGHT_PIXELS, FRAME_WIDTH_PIXELS, KoiFrame};
 
 /// Each native pixel becomes this many export pixels on each side.
@@ -200,6 +201,66 @@ pub fn encode_gif(koi_frames: &[KoiFrame]) -> Result<Vec<u8>, GifEncodingError> 
             height: (box_height * STATIC_EXPORT_SCALE) as u16,
             palette: Some(palette_channels),
             buffer: Cow::Owned(export_indices),
+            ..gif::Frame::default()
+        })?;
+    }
+    Ok(gif_encoder.into_inner()?)
+}
+
+/// Encode a pond loop as an animated GIF at the frames' own size. A pond has gradients
+/// and glow, so unlike the koi it needs a reduced palette: one shared palette of 255
+/// colours is learned from a sample of the frames (NeuQuant), so colours hold still from
+/// frame to frame, and index 0 marks the transparent outside. Delays follow
+/// `FRAMES_PER_SECOND` as `encode_gif`'s do. Identical frames produce identical bytes.
+pub fn encode_pond_gif(pond_frames: &[PondFrame]) -> Result<Vec<u8>, GifEncodingError> {
+    let Some(first_frame) = pond_frames.first() else {
+        return Err(GifEncodingError::NoFrames);
+    };
+    let side = first_frame.side();
+    let sample_step = (pond_frames.len() / 8).max(1);
+    let mut sample_pixels = Vec::new();
+    for pond_frame in pond_frames.iter().step_by(sample_step) {
+        for pixel in pond_frame.as_rgba_bytes().as_chunks::<4>().0 {
+            if pixel[3] == 255 {
+                sample_pixels.extend_from_slice(pixel);
+            }
+        }
+    }
+    if sample_pixels.is_empty() {
+        sample_pixels.extend_from_slice(&[0, 0, 0, 255]);
+    }
+    let quantizer = color_quant::NeuQuant::new(10, GIF_COLOR_LIMIT, &sample_pixels);
+    let mut palette_channels = vec![0; 3];
+    palette_channels.extend(quantizer.color_map_rgb());
+    palette_channels.resize(256 * 3, 0);
+    let mut gif_encoder =
+        gif::Encoder::new(Vec::new(), side as u16, side as u16, &palette_channels)?;
+    gif_encoder.set_repeat(gif::Repeat::Infinite)?;
+    let mut known_indices: HashMap<[u8; 4], u8> = HashMap::new();
+    for (frame_index, pond_frame) in pond_frames.iter().enumerate() {
+        let frame_indices: Vec<u8> = pond_frame
+            .as_rgba_bytes()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| {
+                if pixel[3] == 0 {
+                    GIF_TRANSPARENT_INDEX
+                } else {
+                    *known_indices
+                        .entry(*pixel)
+                        .or_insert_with(|| quantizer.index_of(pixel) as u8 + 1)
+                }
+            })
+            .collect();
+        gif_encoder.write_frame(&gif::Frame {
+            delay: calculate_elapsed_hundredths(frame_index + 1)
+                - calculate_elapsed_hundredths(frame_index),
+            dispose: gif::DisposalMethod::Background,
+            transparent: Some(GIF_TRANSPARENT_INDEX),
+            width: side as u16,
+            height: side as u16,
+            buffer: Cow::Owned(frame_indices),
             ..gif::Frame::default()
         })?;
     }

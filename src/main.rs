@@ -12,7 +12,11 @@ use git_koi::collect::{GhCli, collect_account_snapshot};
 use git_koi::history::AccountSnapshot;
 use git_koi::koi::derive_koi_development;
 use git_koi::motion::frame_count;
-use git_koi::output::{encode_gif, encode_png, encode_preview_html};
+use git_koi::output::{encode_gif, encode_png, encode_pond_gif, encode_preview_html};
+use git_koi::pond::{
+    Depth, Drops, Garden, Lights, Moon, PondOptions, PondSize, School, Season, Weather,
+    choose_season, choose_weather, date_number, render_pond, school_bodies, suited_body,
+};
 use git_koi::render::{KoiFrame, render_koi, render_swim_frame};
 
 /// The command's usage, listing the bodies from [`BODY_NAMES`] so the help names every
@@ -22,6 +26,7 @@ fn build_usage_text() -> String {
     format!(
         "Usage: git-koi collect LOGIN [--output FILE]
        git-koi render SNAPSHOT --output-dir DIR [--body BODY]
+       git-koi pond SNAPSHOT --output-dir DIR [POND OPTIONS]
        git-koi --help | --version
 Collect LOGIN's public GitHub snapshot as JSON through `gh api`: public owned and
 contributed repositories, and daily contributions from the account's creation
@@ -33,8 +38,33 @@ observation date, koi.png is the still koi, and preview.html shows both on light
 dark backgrounds. BODY is {body_names}.
 The files are replaced only after all of them render.
 Render prints nothing on success; errors go to stderr and exit 1; invalid usage exits 2.
+Swim the koi through a garden pond into DIR/koi.gif, and with --night also
+DIR/koi-night.gif, the same pond at night for viewers in dark mode. The date is the
+snapshot's observation date unless --date YYYY-MM-DD names another. POND OPTIONS,
+each followed by a value, the first value being the default:
+  --season   auto (from the date), {seasons}
+  --weather  auto (rain about one day in seven, never in winter), {weathers}
+  --garden   {gardens}
+  --size     {sizes}
+  --lights   {lights}
+  --moon     {moons}
+  --depth    {depths}
+  --drops    {drops}
+  --koi      {schools}
+  --body, --night-body   auto (suits the season; platinum at night) or a body
+and --night on its own.
 Examples: git-koi collect octocat --output snapshot.json
-          git-koi render snapshot.json --output-dir koi --body asagi"
+          git-koi render snapshot.json --output-dir koi --body asagi
+          git-koi pond snapshot.json --output-dir koi --body asagi --night --lights euro",
+        seasons = list_names(Season::ALL.iter().map(|value| value.name())),
+        weathers = list_names(Weather::ALL.iter().map(|value| value.name())),
+        gardens = list_names(Garden::ALL.iter().map(|value| value.name())),
+        sizes = list_names(PondSize::ALL.iter().map(|value| value.name())),
+        lights = list_names(Lights::ALL.iter().map(|value| value.name())),
+        moons = list_names(Moon::ALL.iter().map(|value| value.name())),
+        depths = list_names(Depth::ALL.iter().map(|value| value.name())),
+        drops = list_names(Drops::ALL.iter().map(|value| value.name())),
+        schools = list_names(School::ALL.iter().map(|value| value.name())),
     )
 }
 
@@ -47,6 +77,11 @@ const BODY_NAMES: [(&str, KoiBody); 6] = [
     ("gold", KoiBody::Gold),
     ("platinum", KoiBody::Platinum),
 ];
+
+/// Names joined with commas.
+fn list_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    names.collect::<Vec<_>>().join(", ")
+}
 
 /// The body names in table order, the default marked and the last joined with "or".
 fn list_body_names() -> String {
@@ -106,11 +141,179 @@ fn main() -> ExitCode {
             Path::new(&program_arguments[3]),
             parse_body(body_name).expect("the guard parsed the body"),
         ),
+        [Some("pond"), Some("--help")] => {
+            println!("{}", build_usage_text());
+            ExitCode::SUCCESS
+        }
+        [
+            Some("pond"),
+            Some(snapshot_path),
+            Some("--output-dir"),
+            _,
+            ..,
+        ] if !snapshot_path.starts_with('-') => match parse_pond_request(&argument_texts[4..]) {
+            Some(pond_request) => run_pond(
+                Path::new(snapshot_path),
+                Path::new(&program_arguments[3]),
+                &pond_request,
+            ),
+            None => {
+                eprintln!("{}", build_usage_text());
+                ExitCode::from(2)
+            }
+        },
         _ => {
             eprintln!("{}", build_usage_text());
             ExitCode::from(2)
         }
     }
+}
+
+/// The pond command's choices; `None` for a season, weather or body means "decide".
+struct PondRequest {
+    date: Option<NaiveDate>,
+    season: Option<Season>,
+    weather: Option<Weather>,
+    garden: Garden,
+    size: PondSize,
+    lights: Lights,
+    moon: Moon,
+    depth: Depth,
+    drops: Drops,
+    school: School,
+    body: Option<KoiBody>,
+    night_body: Option<KoiBody>,
+    night: bool,
+}
+
+/// Read the pond options after `--output-dir DIR`; `None` for anything unknown.
+fn parse_pond_request(arguments: &[Option<&str>]) -> Option<PondRequest> {
+    let mut request = PondRequest {
+        date: None,
+        season: None,
+        weather: None,
+        garden: Garden::ALL[0],
+        size: PondSize::ALL[0],
+        lights: Lights::ALL[0],
+        moon: Moon::ALL[0],
+        depth: Depth::ALL[0],
+        drops: Drops::ALL[0],
+        school: School::ALL[0],
+        body: None,
+        night_body: None,
+        night: false,
+    };
+    let auto_or = |value: &str, parse: fn(&str) -> Option<KoiBody>| match value {
+        "auto" => Some(None),
+        _ => parse(value).map(Some),
+    };
+    let mut remaining = arguments.iter();
+    while let Some(flag) = remaining.next() {
+        if *flag == Some("--night") {
+            request.night = true;
+            continue;
+        }
+        let value = (*remaining.next()?)?;
+        match (*flag)? {
+            "--date" => request.date = Some(NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()?),
+            "--season" if value == "auto" => request.season = None,
+            "--season" => request.season = Some(Season::parse(value)?),
+            "--weather" if value == "auto" => request.weather = None,
+            "--weather" => request.weather = Some(Weather::parse(value)?),
+            "--garden" => request.garden = Garden::parse(value)?,
+            "--size" => request.size = PondSize::parse(value)?,
+            "--lights" => request.lights = Lights::parse(value)?,
+            "--moon" => request.moon = Moon::parse(value)?,
+            "--depth" => request.depth = Depth::parse(value)?,
+            "--drops" => request.drops = Drops::parse(value)?,
+            "--koi" => request.school = School::parse(value)?,
+            "--body" => request.body = auto_or(value, parse_body)?,
+            "--night-body" => request.night_body = auto_or(value, parse_body)?,
+            _ => return None,
+        }
+    }
+    Some(request)
+}
+
+fn run_pond(snapshot_path: &Path, output_directory: &Path, request: &PondRequest) -> ExitCode {
+    let pond_result = draw_ponds(snapshot_path, request).and_then(|output_files| {
+        fs::create_dir_all(output_directory)
+            .map_err(|create_error| format!("{}: {create_error}", output_directory.display()))?;
+        for (file_name, file_bytes) in output_files {
+            replace_file(&output_directory.join(file_name), &file_bytes)?;
+        }
+        Ok(())
+    });
+    match pond_result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error_message) => {
+            eprintln!("git-koi: {error_message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Draw and encode the day's pond, and the night's with --night, in memory, so neither
+/// is written unless both succeed.
+fn draw_ponds(
+    snapshot_path: &Path,
+    request: &PondRequest,
+) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let snapshot_json = fs::read_to_string(snapshot_path)
+        .map_err(|read_error| format!("{}: {read_error}", snapshot_path.display()))?;
+    let account_snapshot: AccountSnapshot = serde_json::from_str(&snapshot_json)
+        .map_err(|parse_error| format!("{}: {parse_error}", snapshot_path.display()))?;
+    let koi_development = derive_koi_development(&account_snapshot)
+        .map_err(|development_error| development_error.to_string())?;
+    let behavior = select_behavior(&koi_development);
+    let date = request.date.unwrap_or(koi_development.observed_on);
+    let season = request.season.unwrap_or_else(|| choose_season(date));
+    let weather = request
+        .weather
+        .unwrap_or_else(|| choose_weather(date, season));
+    let mut ponds = Vec::new();
+    let times = if request.night {
+        &[false, true][..]
+    } else {
+        &[false][..]
+    };
+    for &night in times {
+        let chosen_body = if night {
+            request.night_body
+        } else {
+            request.body
+        };
+        let bodies: Vec<KoiBody> = match request.school {
+            School::Three => school_bodies(season, night).to_vec(),
+            School::One => vec![chosen_body.unwrap_or_else(|| suited_body(season, night))],
+        };
+        let koi_loops: Vec<Vec<KoiFrame>> = bodies
+            .iter()
+            .map(|&koi_body| {
+                (0..frame_count(behavior))
+                    .map(|frame_index| {
+                        render_swim_frame(&koi_development, koi_body, behavior, frame_index)
+                    })
+                    .collect()
+            })
+            .collect();
+        let pond_options = PondOptions {
+            season,
+            weather,
+            night,
+            garden: request.garden,
+            size: request.size,
+            lights: request.lights,
+            moon: request.moon,
+            depth: request.depth,
+            drops: request.drops,
+            day_seed: date_number(date),
+        };
+        let gif_bytes = encode_pond_gif(&render_pond(&koi_loops, &pond_options))
+            .map_err(|encoding_error| encoding_error.to_string())?;
+        ponds.push((if night { "koi-night.gif" } else { "koi.gif" }, gif_bytes));
+    }
+    Ok(ponds)
 }
 
 fn run_collect(login: &str, output_path: Option<&Path>) -> ExitCode {

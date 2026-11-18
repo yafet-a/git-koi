@@ -1,10 +1,10 @@
 [package]
 name = "git-koi"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Draw a pixel-art koi from a GitHub account's public activity, as a looping GIF for a profile README."
-repository = "https://github.com/yalongwastaken/git-koi"
+repository = "https://github.com/yafet-a/git-koi"
 documentation = "https://docs.rs/git-koi"
 readme = "README.md"
 license = "MIT"
@@ -14,6 +14,7 @@ exclude = ["/.github", "/docs"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+color_quant = "1.1"
 gif = { version = "0.14", default-features = false, features = ["std"] }
 png = "0.18"
 serde = { version = "1", features = ["derive"] }

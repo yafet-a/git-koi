@@ -6,13 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-18
+
+This fork's first release: the koi gets a pond.
+
 ### Added
 
+- `git-koi pond` swims the koi through a garden pond and writes `koi.gif`, and
+  with `--night` also `koi-night.gif`, the same pond at night for viewers in
+  dark mode. The pond follows the season of the snapshot's observation date,
+  with rain on about one day in seven outside winter, and takes options for the
+  garden or deck around it, its size, the lights and moon at night, whether the
+  koi swims under the surface, where falling leaves land, and a school of three.
+- The Action passes those options through: `scene`, `weather`, `night`, `size`,
+  `garden`, `lights`, `moon`, `depth`, `drops`, `koi`, `body: auto` and
+  `night-body`. With `scene: none`, the default, it does exactly what it did.
 - The Action runs on Windows runners, downloading and checking the release's
   `.zip` (#36).
 
 ### Changed
 
+- Releases come from this fork, and the release workflow no longer publishes the
+  crate, whose name belongs to the original project.
 - `git-koi render` prints nothing when it succeeds. The line it printed named
   the behavior, date, and body, which `preview.html` already shows (#43).
 
@@ -50,7 +65,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `git-koi` library: account history, koi development, behavior, motion,
   markings, rendering, and encoding.
 
-[Unreleased]: https://github.com/yalongwastaken/git-koi/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/yafet-a/git-koi/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/yafet-a/git-koi/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/yalongwastaken/git-koi/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/yalongwastaken/git-koi/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/yalongwastaken/git-koi/releases/tag/v1.0.0

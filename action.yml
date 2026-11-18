@@ -13,24 +13,24 @@ inputs:
   body:
     description:
       Body color, one of white, black, asagi, tea, gold, or platinum, or auto
-      to use the color that suits the scene.
+      for the color that suits the season (with scene).
     default: white
   scene:
     description:
-      Season of the pond. none keeps the plain koi. auto follows the date
-      (March to May spring, June to August summer, September to November
+      Season of the pond. none keeps the plain koi. auto follows the snapshot's
+      date (March to May spring, June to August summer, September to November
       autumn, December to February winter), or fix one of spring, summer,
       autumn, or winter.
     default: none
   weather:
     description:
-      auto (rain on about one day in seven, any season but winter, which
-      snows), clear, or rain.
+      auto (rain on about one day in seven, any season but winter, which snows),
+      clear, or rain.
     default: auto
   night:
     description:
-      Also draw koi-night.gif, the same pond at night with the same weather,
-      for viewers in dark mode. true or false.
+      Also draw koi-night.gif, the same pond at night with the same weather, for
+      viewers in dark mode. true or false.
     default: "false"
   size:
     description:
@@ -40,18 +40,19 @@ inputs:
   garden:
     description:
       What surrounds the pond. garden (moss bank and moss islands in raked
-      gravel), islands, bank, gravel, deck (oak), deckdark, deckold (old,
-      mossy oak), deckgrey, deckwalnut, or mist (no edge, the water fades
-      out).
+      gravel), islands, bank, gravel, deck (oak), deckdark, deckold (old, mossy
+      oak), deckgrey, deckwalnut, or mist (no edge, the water fades out).
     default: garden
   lights:
     description:
       Night lights. reflect (only their reflections on the water), onefloat,
-      floating, euro (old European lamps), toro (stone lanterns), chinese
-      (paper lanterns), string, or none.
+      floating, euro (old European lamps), toro (stone lanterns), chinese (paper
+      lanterns), string, or none.
     default: reflect
   moon:
-    description: The moon on the water at night. lines, round, halo, crescent, glade, or none.
+    description:
+      The moon on the water at night. lines, round, halo, crescent, glade, or
+      none.
     default: lines
   drops:
     description:
@@ -61,6 +62,11 @@ inputs:
   koi:
     description: one, or three to share the pond with two more koi.
     default: one
+  night-body:
+    description:
+      The body at night, as `body`; auto is platinum, a pale koi that catches
+      the lamplight.
+    default: auto
   depth:
     description:
       under (the koi swims beneath the surface, under lily pads, leaves and
@@ -129,58 +135,36 @@ runs:
         KOI_LOGIN: ${{ inputs.login }}
       run:
         git-koi collect "$KOI_LOGIN" --output "$RUNNER_TEMP/koi-snapshot.json"
-    - name: Set up the pond renderer
-      if: inputs.scene != 'none'
-      shell: bash
-      run: |
-        python3 -m venv "$RUNNER_TEMP/pond-venv"
-        if [ -x "$RUNNER_TEMP/pond-venv/bin/python" ]; then
-          py="$RUNNER_TEMP/pond-venv/bin/python"
-        else
-          py="$RUNNER_TEMP/pond-venv/Scripts/python.exe"
-        fi
-        "$py" -m pip install --quiet --disable-pip-version-check "pillow==11.3.0"
-        echo "POND_PY=$py" >> "$GITHUB_ENV"
-    - name: Choose the scene
-      id: choose
-      if: inputs.scene != 'none'
-      shell: bash
-      env:
-        KOI_SCENE: ${{ inputs.scene }}
-      run: |
-        "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" plan --scene "$KOI_SCENE" >> "$GITHUB_OUTPUT"
     - name: Render the koi
       shell: bash
       env:
-        KOI_BODY: ${{ inputs.body != 'auto' && inputs.body || steps.choose.outputs.body || 'white' }}
+        KOI_BODY: ${{ inputs.body != 'auto' && inputs.body || 'white' }}
         KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
       run:
         git-koi render "$RUNNER_TEMP/koi-snapshot.json" --output-dir
         "$KOI_OUTPUT_DIR" --body "$KOI_BODY"
-    - name: Draw the pond
+    - name: Swim the koi through the pond
       if: inputs.scene != 'none'
       shell: bash
       env:
-        KOI_SCENE: ${{ steps.choose.outputs.scene }}
-        KOI_BODY: ${{ inputs.body }}
+        KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
+        KOI_SEASON: ${{ inputs.scene }}
+        KOI_WEATHER: ${{ inputs.weather }}
         KOI_NIGHT: ${{ inputs.night }}
         KOI_SIZE: ${{ inputs.size }}
         KOI_GARDEN: ${{ inputs.garden }}
         KOI_LIGHTS: ${{ inputs.lights }}
         KOI_MOON: ${{ inputs.moon }}
-        KOI_DROPS: ${{ inputs.drops }}
-        KOI_WEATHER: ${{ inputs.weather }}
         KOI_DEPTH: ${{ inputs.depth }}
+        KOI_DROPS: ${{ inputs.drops }}
         KOI_SCHOOL: ${{ inputs.koi }}
-        KOI_OUTPUT_DIR: ${{ inputs.output-dir }}
+        KOI_BODY: ${{ inputs.body }}
+        KOI_NIGHT_BODY: ${{ inputs.night-body }}
       run: |
-        draw() {
-          "$POND_PY" "$GITHUB_ACTION_PATH/scenes/pond.py" draw --snapshot "$RUNNER_TEMP/koi-snapshot.json" \
-            --scene "$KOI_SCENE" --body "$KOI_BODY" --size "$KOI_SIZE" --garden "$KOI_GARDEN" \
-            --lights "$KOI_LIGHTS" --moon "$KOI_MOON" --drops "$KOI_DROPS" --koi "$KOI_SCHOOL" \
-            --weather "$KOI_WEATHER" --depth "$KOI_DEPTH" "$@"
-        }
-        draw --theme light --out "$KOI_OUTPUT_DIR/koi.gif"
-        if [ "$KOI_NIGHT" = true ]; then
-          draw --theme dark --out "$KOI_OUTPUT_DIR/koi-night.gif"
-        fi
+        night=()
+        if [ "$KOI_NIGHT" = true ]; then night=(--night); fi
+        git-koi pond "$RUNNER_TEMP/koi-snapshot.json" --output-dir "$KOI_OUTPUT_DIR" \
+          --season "$KOI_SEASON" --weather "$KOI_WEATHER" --size "$KOI_SIZE" \
+          --garden "$KOI_GARDEN" --lights "$KOI_LIGHTS" --moon "$KOI_MOON" \
+          --depth "$KOI_DEPTH" --drops "$KOI_DROPS" --koi "$KOI_SCHOOL" \
+          --body "$KOI_BODY" --night-body "$KOI_NIGHT_BODY" "${night[@]}"

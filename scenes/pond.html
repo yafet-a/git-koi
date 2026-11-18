@@ -406,7 +406,11 @@ function buildEdge(kind) {
   }
   ctx = save;
   moonlight(rim);
-  return {mask, rim, anchors: [c - (state.size === "wide" ? 50 : 44), c + (state.size === "wide" ? 49 : 43)].map(x => ({x, y: topAt(x) - 3}))};
+  // lamps stand on the bank towards the sides, low enough that the tallest (41 px) keeps its head in the picture
+  // the lamp's 9 px base must clear the water under its whole width, not just at its centre
+  const waterTop = x => { for (let y = 0; y < S; y++) if (mask[y*S + Math.round(x)]) return y; return Infinity; }; // Infinity: no water in this column
+  const footAt = x => { let y = Infinity; for (let dx = -6; dx <= 6; dx++) y = Math.min(y, waterTop(x + dx)); return y - 2; };
+  return {mask, rim, anchors: [c - (state.size === "wide" ? 56 : 53), c + (state.size === "wide" ? 55 : 52)].map(x => ({x, y: footAt(x)}))};
 }
 
 // ------------------------------------------------------------------ night lights (drawn over the rim)
@@ -434,7 +438,7 @@ function drawLights(t) {
     R(x - 3, y - 27, 7, 2, ink);
     R(x - 4, y - 35, 9, 8, ink); R(x - 3, y - 34, 3, 6, lit); R(x + 1, y - 34, 3, 6, lit); P(x - 2, y - 33, hi); P(x + 2, y - 33, hi);
     R(x - 5, y - 36, 11, 1, ink); R(x - 4, y - 37, 9, 1, ink); R(x - 3, y - 38, 7, 1, ink); R(x - 1, y - 39, 3, 1, ink); P(x, y - 41, ink); P(x, y - 40, ink2);
-    glow(x, y - 31, 18, [255,190,100], 0.42);
+    glow(x, y - 31, Math.max(6, Math.min(18, y - 31, x, G.S - x)), [255,190,100], 0.42); // never wider than the room it has
   }
   if (state.lamp === "toro") for (const p of EDGE.anchors) {
     const x = Math.round(p.x), y = Math.round(p.y), st = hx("#8f9196"), dk = hx("#5f6166"), lt = hx("#b4b6ba"), lit = [255, 205 + Math.round(25*Math.sin(ph*5 + x)), 120];

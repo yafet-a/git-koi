@@ -13,6 +13,8 @@
 //!    the koi can wear and colors it from its languages.
 //! 6. [`render`] draws a [`render::KoiFrame`], still or swimming, and [`output`] encodes
 //!    it as PNG, SVG, or a looping GIF, with a preview page.
+//! 7. [`pond`] swims those frames through a garden pond that follows the seasons and the
+//!    weather, by day or at night, and [`output::encode_pond_gif`] encodes it.
 //!
 //! Everything after collection is deterministic: it reads no clock, performs no I/O, and
 //! mutates no input. Callers own files and publication. The `git-koi` command composes
@@ -28,4 +30,5 @@ pub mod koi;
 pub mod markings;
 pub mod motion;
 pub mod output;
+pub mod pond;
 pub mod render;
