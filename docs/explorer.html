@@ -512,7 +512,8 @@ function drawFish(body, t, dx, dy, scale, mirror, night) {
     if (!night) { tctx.save(); tctx.globalCompositeOperation = "source-atop"; tctx.fillStyle = css(WATER.mid, 0.22); tctx.fillRect(0, 0, 256, 256); tctx.restore(); }
     // refraction: each pair of rows slides a pixel or so with the ripples
     wctx.clearRect(0, 0, 256, 256);
-    for (let y = 0; y < 256; y += 2) { const shift = 2 * Math.round(Math.sin(y * 0.045 + TAU * t / N * 3)); wctx.drawImage(tmp, 0, y, 256, 2, shift, y, 256, 2); }
+    // half a pixel of the koi's own art, in slow bands, so thin fins waver without breaking up
+    for (let y = 0; y < 256; y += 4) { const shift = Math.round(Math.sin(y * 0.03 + TAU * t / N * 2)); wctx.drawImage(tmp, 0, y, 256, 4, shift, y, 256, 4); }
     tctx.clearRect(0, 0, 256, 256); tctx.drawImage(wobbleCv, 0, 0);
   }
   // the shadow: the fish's own silhouette, dark and offset
