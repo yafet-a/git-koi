@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-19
+
+### Changed
+
+- The garden's deck has four low lights along its back edge as well as its
+  front, so the light is even.
+- The deck's gas lamp stands in the middle of the deck, between the bench and
+  the garden bed.
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

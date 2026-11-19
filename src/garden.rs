@@ -123,11 +123,17 @@ const HEIGHT: i32 = 176;
 
 const WALKWAY: [i32; 4] = [160, 78, 26, 20];
 const PLATFORM: [i32; 4] = [184, 28, 188, 120];
-const PLANTER: [i32; 2] = [194, 36];
+const PLANTER: [i32; 2] = [194, 40];
 const BED: [f64; 3] = [338.0, 104.0, 26.0];
 const BENCH: [i32; 3] = [204, 112, 60];
-const LAMP: [f64; 2] = [278.0, 132.0];
-const BOLLARDS: [[f64; 2]; 4] = [
+/// The gas lamp, in the middle of the deck between the bench and the bed.
+const LAMPS: &[[f64; 2]] = &[[300.0, 96.0]];
+/// Low lights along the deck's back and front edges, four each, in matching columns.
+const BOLLARDS: [[f64; 2]; 8] = [
+    [200.0, 34.0],
+    [246.0, 34.0],
+    [300.0, 34.0],
+    [352.0, 34.0],
     [200.0, 142.0],
     [246.0, 142.0],
     [300.0, 142.0],
@@ -160,7 +166,9 @@ pub fn render_garden(
             let mut lamp = Layer::sized(GARDEN_WIDTH, HEIGHT);
             let phase = TAU * frame as f64 / frame_count as f64;
             let lit = options.night && options.lights != Lights::Off;
-            draw_euro_lamp(&mut lamp, LAMP, phase, f64::from(GARDEN_WIDTH), lit);
+            for &foot in LAMPS {
+                draw_euro_lamp(&mut lamp, foot, phase, f64::from(GARDEN_WIDTH), lit);
+            }
             scene.draw_scaled(&lamp, [0, 0], 2);
             scene.to_frame()
         })
