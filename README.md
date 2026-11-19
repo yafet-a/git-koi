@@ -5,8 +5,12 @@
 > Yalong, which draws a pixel-art koi from a GitHub account's activity. **This
 > fork gives the koi a pond to swim in**: a garden that changes with the
 > seasons, rain and snow, a night pond for viewers in dark mode, and a set of
-> styles to choose from. The koi itself is drawn exactly as the original draws
-> it; nothing in the Rust code is changed.
+> styles to choose from. With `layout: garden` the pond sits beside a deck that
+> grows the year's contributions in a planter and the activity overview in a
+> garden bed. The koi itself is drawn exactly as the original draws it; nothing
+> in the Rust code is changed.
+
+<p align="center"><img src="docs/scenes/garden-night.gif" width="752" alt="The koi pond at night beside a deck with a contributions planter, an activity garden bed, a bench and gas lamps"><br><sub>The garden layout, autumn night</sub></p>
 
 <table>
 <tr>
