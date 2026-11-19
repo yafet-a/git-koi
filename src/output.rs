@@ -212,11 +212,91 @@ pub fn encode_gif(koi_frames: &[KoiFrame]) -> Result<Vec<u8>, GifEncodingError> 
 /// colours is learned from a sample of the frames (NeuQuant), so colours hold still from
 /// frame to frame, and index 0 marks the transparent outside. Delays follow
 /// `FRAMES_PER_SECOND` as `encode_gif`'s do. Identical frames produce identical bytes.
+///
+/// Most of a pond holds still while the koi swims, so after the first frame each frame
+/// stores only what changed: the box around the changed pixels, with the pixels inside
+/// it that did not change left transparent, drawn over the frame before. That holds only
+/// while the transparent outside stays put, so a loop whose outside changes stores every
+/// frame whole.
 pub fn encode_pond_gif(pond_frames: &[PondFrame]) -> Result<Vec<u8>, GifEncodingError> {
     let Some(first_frame) = pond_frames.first() else {
         return Err(GifEncodingError::NoFrames);
     };
-    let side = first_frame.side();
+    let (width, height) = (first_frame.width() as usize, first_frame.height() as usize);
+    let (palette_channels, index_frames) = index_pond_frames(pond_frames);
+    let mut gif_encoder =
+        gif::Encoder::new(Vec::new(), width as u16, height as u16, &palette_channels)?;
+    gif_encoder.set_repeat(gif::Repeat::Infinite)?;
+    let outside_holds = index_frames.windows(2).all(|pair| {
+        pair[0].iter().zip(&pair[1]).all(|(before, after)| {
+            (*before == GIF_TRANSPARENT_INDEX) == (*after == GIF_TRANSPARENT_INDEX)
+        })
+    });
+    for (frame_index, frame_indices) in index_frames.iter().enumerate() {
+        let delay = calculate_elapsed_hundredths(frame_index + 1)
+            - calculate_elapsed_hundredths(frame_index);
+        let previous = frame_index
+            .checked_sub(1)
+            .map(|before| &index_frames[before]);
+        let gif_frame = match previous.filter(|_| outside_holds) {
+            None => gif::Frame {
+                delay,
+                dispose: if outside_holds {
+                    gif::DisposalMethod::Keep
+                } else {
+                    gif::DisposalMethod::Background
+                },
+                transparent: Some(GIF_TRANSPARENT_INDEX),
+                width: width as u16,
+                height: height as u16,
+                buffer: Cow::Borrowed(frame_indices),
+                ..gif::Frame::default()
+            },
+            Some(previous) => {
+                let changed = |index: usize| frame_indices[index] != previous[index];
+                let mut changed_box: Option<[usize; 4]> = None;
+                for index in (0..frame_indices.len()).filter(|&index| changed(index)) {
+                    let (x, y) = (index % width, index / width);
+                    let [left, top, right, bottom] = changed_box.get_or_insert([x, y, x, y]);
+                    *left = (*left).min(x);
+                    *top = (*top).min(y);
+                    *right = (*right).max(x);
+                    *bottom = (*bottom).max(y);
+                }
+                // a frame with no change keeps one unchanged pixel, since a GIF frame
+                // cannot be empty
+                let [left, top, right, bottom] = changed_box.unwrap_or([0; 4]);
+                let buffer = (top..=bottom)
+                    .flat_map(|y| (left..=right).map(move |x| y * width + x))
+                    .map(|index| {
+                        if changed(index) {
+                            frame_indices[index]
+                        } else {
+                            GIF_TRANSPARENT_INDEX
+                        }
+                    })
+                    .collect();
+                gif::Frame {
+                    delay,
+                    dispose: gif::DisposalMethod::Keep,
+                    transparent: Some(GIF_TRANSPARENT_INDEX),
+                    left: left as u16,
+                    top: top as u16,
+                    width: (right - left + 1) as u16,
+                    height: (bottom - top + 1) as u16,
+                    buffer: Cow::Owned(buffer),
+                    ..gif::Frame::default()
+                }
+            }
+        };
+        gif_encoder.write_frame(&gif_frame)?;
+    }
+    Ok(gif_encoder.into_inner()?)
+}
+
+/// The shared palette as RGB channels, transparent first, and each frame's pixels as
+/// indices into it.
+fn index_pond_frames(pond_frames: &[PondFrame]) -> (Vec<u8>, Vec<Vec<u8>>) {
     let sample_step = (pond_frames.len() / 8).max(1);
     let mut sample_pixels = Vec::new();
     for pond_frame in pond_frames.iter().step_by(sample_step) {
@@ -233,38 +313,28 @@ pub fn encode_pond_gif(pond_frames: &[PondFrame]) -> Result<Vec<u8>, GifEncoding
     let mut palette_channels = vec![0; 3];
     palette_channels.extend(quantizer.color_map_rgb());
     palette_channels.resize(256 * 3, 0);
-    let mut gif_encoder =
-        gif::Encoder::new(Vec::new(), side as u16, side as u16, &palette_channels)?;
-    gif_encoder.set_repeat(gif::Repeat::Infinite)?;
     let mut known_indices: HashMap<[u8; 4], u8> = HashMap::new();
-    for (frame_index, pond_frame) in pond_frames.iter().enumerate() {
-        let frame_indices: Vec<u8> = pond_frame
-            .as_rgba_bytes()
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|pixel| {
-                if pixel[3] == 0 {
-                    GIF_TRANSPARENT_INDEX
-                } else {
-                    *known_indices
-                        .entry(*pixel)
-                        .or_insert_with(|| quantizer.index_of(pixel) as u8 + 1)
-                }
-            })
-            .collect();
-        gif_encoder.write_frame(&gif::Frame {
-            delay: calculate_elapsed_hundredths(frame_index + 1)
-                - calculate_elapsed_hundredths(frame_index),
-            dispose: gif::DisposalMethod::Background,
-            transparent: Some(GIF_TRANSPARENT_INDEX),
-            width: side as u16,
-            height: side as u16,
-            buffer: Cow::Owned(frame_indices),
-            ..gif::Frame::default()
-        })?;
-    }
-    Ok(gif_encoder.into_inner()?)
+    let index_frames = pond_frames
+        .iter()
+        .map(|pond_frame| {
+            pond_frame
+                .as_rgba_bytes()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| {
+                    if pixel[3] == 0 {
+                        GIF_TRANSPARENT_INDEX
+                    } else {
+                        *known_indices
+                            .entry(*pixel)
+                            .or_insert_with(|| quantizer.index_of(pixel) as u8 + 1)
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    (palette_channels, index_frames)
 }
 
 /// The native box `[left, top, width, height]` around a frame's drawn pixels; a frame
@@ -409,6 +479,75 @@ mod tests {
             encode_gif(&[frame_with_colors([[200, 100, 50, 128]])]),
             Err(GifEncodingError::PartialTransparency { frame_index: 0 })
         ));
+    }
+
+    /// A small pond loop: a still transparent border, a still ground, and one pixel
+    /// that walks along a row, or with `moving_outside` a ground that shrinks.
+    fn pond_loop(moving_outside: bool) -> Vec<PondFrame> {
+        (0..6)
+            .map(|frame| {
+                let pixels = (0..64)
+                    .map(|index| {
+                        let (x, y) = (index % 8, index / 8);
+                        let edge = if moving_outside { frame / 2 } else { 0 };
+                        if x <= edge || y == 0 || x == 7 || y == 7 {
+                            [0; 4]
+                        } else if y == 3 && x == 1 + frame % 6 {
+                            [250, 200, 40, 255]
+                        } else {
+                            [40, 90, (100 + x * 10) as u8, 255]
+                        }
+                    })
+                    .collect();
+                PondFrame::new(8, 8, pixels)
+            })
+            .collect()
+    }
+
+    /// Draw every frame of a GIF over the last, as a browser does, as palette indices.
+    fn composite_indices(gif_bytes: &[u8]) -> Vec<Vec<u8>> {
+        let mut options = gif::DecodeOptions::new();
+        options.set_color_output(gif::ColorOutput::Indexed);
+        let mut gif_decoder = options.read_info(gif_bytes).unwrap();
+        let width = usize::from(gif_decoder.width());
+        let mut canvas = vec![GIF_TRANSPARENT_INDEX; width * usize::from(gif_decoder.height())];
+        let mut shown = Vec::new();
+        while let Some(gif_frame) = gif_decoder.read_next_frame().unwrap() {
+            let (left, top) = (usize::from(gif_frame.left), usize::from(gif_frame.top));
+            for (offset, &index) in gif_frame.buffer.iter().enumerate() {
+                let (x, y) = (
+                    offset % usize::from(gif_frame.width),
+                    offset / usize::from(gif_frame.width),
+                );
+                if Some(index) != gif_frame.transparent {
+                    canvas[(top + y) * width + left + x] = index;
+                } else if gif_frame.dispose == gif::DisposalMethod::Background {
+                    canvas[(top + y) * width + left + x] = GIF_TRANSPARENT_INDEX;
+                }
+            }
+            shown.push(canvas.clone());
+        }
+        shown
+    }
+
+    #[test]
+    fn a_pond_shows_every_frame_exactly_while_storing_only_changes() {
+        for moving_outside in [false, true] {
+            let pond_frames = pond_loop(moving_outside);
+            let gif_bytes = encode_pond_gif(&pond_frames).unwrap();
+            assert_eq!(
+                composite_indices(&gif_bytes),
+                index_pond_frames(&pond_frames).1
+            );
+        }
+        let gif_bytes = encode_pond_gif(&pond_loop(false)).unwrap();
+        let mut gif_decoder = gif::DecodeOptions::new()
+            .read_info(gif_bytes.as_slice())
+            .unwrap();
+        gif_decoder.read_next_frame().unwrap();
+        let second = gif_decoder.read_next_frame().unwrap().unwrap();
+        // the walking pixel left one place and arrived at the next: two pixels
+        assert_eq!((second.width, second.height), (2, 1));
     }
 
     #[test]

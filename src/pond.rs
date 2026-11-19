@@ -266,17 +266,54 @@ pub fn school_bodies(season: Season, night: bool) -> [KoiBody; 3] {
 
 // ------------------------------------------------------------------ the output
 
-/// A square pond frame with row-major RGBA pixels; every pixel is opaque or transparent.
+/// A pond frame with row-major RGBA pixels; every pixel is opaque or transparent.
 #[derive(Debug, Eq, PartialEq)]
 pub struct PondFrame {
-    side: u32,
+    width: u32,
+    height: u32,
     rgba_pixels: Vec<[u8; 4]>,
 }
 
 impl PondFrame {
-    /// The width and height in pixels.
+    /// A frame from row-major pixels; `rgba_pixels` holds `width * height` of them.
+    pub(crate) fn new(width: u32, height: u32, rgba_pixels: Vec<[u8; 4]>) -> Self {
+        assert_eq!(rgba_pixels.len(), (width * height) as usize);
+        Self {
+            width,
+            height,
+            rgba_pixels,
+        }
+    }
+
+    /// The width in pixels, which a pond alone shares with its height.
     pub fn side(&self) -> u32 {
-        self.side
+        self.width
+    }
+
+    /// The width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// The height in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// The pixels, row by row from the top left.
+    pub fn pixels(&self) -> &[[u8; 4]] {
+        &self.rgba_pixels
+    }
+
+    /// The frame with every pixel drawn as a `factor` by `factor` block, so a picture
+    /// shown at its usual size stays sharp on a high-density screen.
+    pub fn scaled(&self, factor: u32) -> Self {
+        let (width, height) = (self.width * factor, self.height * factor);
+        let rgba_pixels = (0..height)
+            .flat_map(|y| (0..width).map(move |x| (y / factor * self.width + x / factor) as usize))
+            .map(|index| self.rgba_pixels[index])
+            .collect();
+        Self::new(width, height, rgba_pixels)
     }
 
     /// The pixels as bytes, row by row from the top left, four channels per pixel.
@@ -315,56 +352,82 @@ pub fn render_pond(koi_loops: &[Vec<KoiFrame>], options: &PondOptions) -> Vec<Po
 
 /// Logical size of a scene: the pond is drawn on this grid, then doubled.
 const SCENE: i32 = 128;
-const BAYER: [[f64; 4]; 4] = [
+pub(crate) const BAYER: [[f64; 4]; 4] = [
     [0.0, 8.0, 2.0, 10.0],
     [12.0, 4.0, 14.0, 6.0],
     [3.0, 11.0, 1.0, 9.0],
     [15.0, 7.0, 13.0, 5.0],
 ];
 
-type Rgb = [f64; 3];
+pub(crate) type Rgb = [f64; 3];
 
 /// A colour from `#rrggbb`.
-fn hex(text: &str) -> Rgb {
+pub(crate) fn hex(text: &str) -> Rgb {
     let channel =
         |at: usize| f64::from(u8::from_str_radix(&text[at..at + 2], 16).expect("a hex colour"));
     [channel(1), channel(3), channel(5)]
 }
 
 /// Scale each channel and drop the fraction, as the page's `v * k | 0` does.
-fn shade(colour: Rgb, factor: f64) -> Rgb {
+pub(crate) fn shade(colour: Rgb, factor: f64) -> Rgb {
     colour.map(|channel| (channel * factor).trunc())
 }
 
 /// Round half up, as the page's `Math.round` does.
-fn round(value: f64) -> i32 {
+pub(crate) fn round(value: f64) -> i32 {
     (value + 0.5).floor() as i32
 }
 
 /// A layer of straight-alpha pixels, drawn on like a canvas.
 #[derive(Clone)]
-struct Layer {
-    side: i32,
-    pixels: Vec<[f64; 4]>,
+pub(crate) struct Layer {
+    width: i32,
+    height: i32,
+    pub(crate) pixels: Vec<[f64; 4]>,
     /// Multiplies the opacity of everything drawn, like a canvas's global alpha.
     opacity: f64,
 }
 
 impl Layer {
-    fn new(side: i32) -> Self {
+    pub(crate) fn new(side: i32) -> Self {
+        Self::sized(side, side)
+    }
+
+    pub(crate) fn sized(width: i32, height: i32) -> Self {
         Self {
-            side,
-            pixels: vec![[0.0; 4]; (side * side) as usize],
+            width,
+            height,
+            pixels: vec![[0.0; 4]; (width * height) as usize],
             opacity: 1.0,
         }
     }
 
-    fn at(&self, x: i32, y: i32) -> Option<usize> {
-        (x >= 0 && y >= 0 && x < self.side && y < self.side).then(|| (y * self.side + x) as usize)
+    pub(crate) fn at(&self, x: i32, y: i32) -> Option<usize> {
+        (x >= 0 && y >= 0 && x < self.width && y < self.height)
+            .then(|| (y * self.width + x) as usize)
+    }
+
+    /// The layer as a frame: half-covered pixels and more become opaque, the rest
+    /// transparent, since a GIF has nothing in between.
+    pub(crate) fn to_frame(&self) -> PondFrame {
+        PondFrame::new(
+            self.width as u32,
+            self.height as u32,
+            (0..self.pixels.len())
+                .map(|index| {
+                    let [red, green, blue, alpha] = self.read(index);
+                    if alpha >= 128 {
+                        [red, green, blue, 255]
+                    } else {
+                        [0; 4]
+                    }
+                })
+                .collect(),
+        )
     }
 
     /// Paint over a pixel with straight-alpha source-over blending.
-    fn blend(&mut self, x: i32, y: i32, colour: Rgb, alpha: f64) {
+    pub(crate) fn blend(&mut self, x: i32, y: i32, colour: Rgb, alpha: f64) {
         let alpha = (alpha * self.opacity).clamp(0.0, 1.0);
         let Some(index) = self.at(x, y) else { return };
         if alpha <= 0.0 {
@@ -380,11 +443,19 @@ impl Layer {
         self.pixels[index] = out;
     }
 
-    fn point(&mut self, x: f64, y: f64, colour: Rgb, alpha: f64) {
+    pub(crate) fn point(&mut self, x: f64, y: f64, colour: Rgb, alpha: f64) {
         self.blend(round(x), round(y), colour, alpha);
     }
 
-    fn rect(&mut self, x: f64, y: f64, width: f64, height: f64, colour: Rgb, alpha: f64) {
+    pub(crate) fn rect(
+        &mut self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        colour: Rgb,
+        alpha: f64,
+    ) {
         let (left, top) = (round(x), round(y));
         for row in top..top + round(height) {
             for column in left..left + round(width) {
@@ -394,7 +465,7 @@ impl Layer {
     }
 
     /// Bresenham's line between rounded ends.
-    fn line(&mut self, from: [f64; 2], to: [f64; 2], colour: Rgb, alpha: f64) {
+    pub(crate) fn line(&mut self, from: [f64; 2], to: [f64; 2], colour: Rgb, alpha: f64) {
         let (mut x, mut y, x1, y1) = (round(from[0]), round(from[1]), round(to[0]), round(to[1]));
         let (dx, dy) = ((x1 - x).abs(), -(y1 - y).abs());
         let (step_x, step_y) = (if x < x1 { 1 } else { -1 }, if y < y1 { 1 } else { -1 });
@@ -431,7 +502,7 @@ impl Layer {
     }
 
     /// A filled ellipse, row by row.
-    fn disc(&mut self, centre: [f64; 2], radii: [f64; 2], colour: Rgb, alpha: f64) {
+    pub(crate) fn disc(&mut self, centre: [f64; 2], radii: [f64; 2], colour: Rgb, alpha: f64) {
         let [cx, cy] = centre;
         let [rx, ry] = radii;
         for row in (cy - ry).floor() as i32..=(cy + ry).ceil() as i32 {
@@ -471,7 +542,7 @@ impl Layer {
     }
 
     /// Light added on top, fading from the centre to nothing at the radius.
-    fn glow(&mut self, centre: [f64; 2], radius: f64, colour: Rgb, alpha: f64) {
+    pub(crate) fn glow(&mut self, centre: [f64; 2], radius: f64, colour: Rgb, alpha: f64) {
         let [cx, cy] = centre;
         for row in (cy - radius).floor() as i32..(cy + radius).ceil() as i32 {
             for column in (cx - radius).floor() as i32..(cx + radius).ceil() as i32 {
@@ -497,7 +568,7 @@ impl Layer {
     }
 
     /// The pixel as the page would read it back: whole numbers.
-    fn read(&self, index: usize) -> [u8; 4] {
+    pub(crate) fn read(&self, index: usize) -> [u8; 4] {
         let pixel = self.pixels[index];
         [
             pixel[0].round() as u8,
@@ -508,12 +579,12 @@ impl Layer {
     }
 
     /// Draw `source` scaled up by `scale` with its top left at `at`, nearest pixel.
-    fn draw_scaled(&mut self, source: &Layer, at: [i32; 2], scale: i32) {
+    pub(crate) fn draw_scaled(&mut self, source: &Layer, at: [i32; 2], scale: i32) {
         for (index, pixel) in source.pixels.iter().enumerate() {
             if pixel[3] <= 0.0 {
                 continue;
             }
-            let (x, y) = (index as i32 % source.side, index as i32 / source.side);
+            let (x, y) = (index as i32 % source.width, index as i32 / source.width);
             for dy in 0..scale {
                 for dx in 0..scale {
                     self.blend(
@@ -545,13 +616,13 @@ impl Random {
 }
 
 /// A repeatable pseudo-random value in [0, 1) for a point.
-fn hash(x: f64, y: f64) -> f64 {
+pub(crate) fn hash(x: f64, y: f64) -> f64 {
     let scrambled = (x * 12.9898 + y * 78.233).sin() * 43_758.545_3;
     scrambled - scrambled.floor()
 }
 
 /// Smooth value noise in [0, 1].
-fn value_noise(x: f64, y: f64) -> f64 {
+pub(crate) fn value_noise(x: f64, y: f64) -> f64 {
     let (xi, yi) = (x.floor(), y.floor());
     let (xf, yf) = (x - xi, y - yi);
     let (u, v) = (xf * xf * (3.0 - 2.0 * xf), yf * yf * (3.0 - 2.0 * yf));
@@ -640,15 +711,15 @@ struct Edge {
     anchors: [[f64; 2]; 2],
 }
 
-struct DeckStyle {
+pub(crate) struct DeckStyle {
     boards: [&'static str; 4],
     seam: &'static str,
-    nail: &'static str,
+    pub(crate) nail: &'static str,
     aged: bool,
     posts: bool,
 }
 
-fn deck_style(garden: Garden) -> Option<DeckStyle> {
+pub(crate) fn deck_style(garden: Garden) -> Option<DeckStyle> {
     let style = |boards, seam, nail, aged, posts| {
         Some(DeckStyle {
             boards,
@@ -761,9 +832,7 @@ fn build_deck(options: &PondOptions, geometry: &Geometry, style: &DeckStyle) -> 
     } else {
         (52.0, 62.0, 10.0)
     };
-    let boards = style.boards.map(hex);
-    let (seam, nail) = (hex(style.seam), hex(style.nail));
-    let wet = options.weather == Weather::Rain;
+    let nail = hex(style.nail);
     let inside = |x: i32, y: i32, extent: f64, radius: f64| {
         let (dx, dy) = (
             (f64::from(x) + 0.5 - c).abs(),
@@ -796,75 +865,19 @@ fn build_deck(options: &PondOptions, geometry: &Geometry, style: &DeckStyle) -> 
             let place = (along + board * 23 + if across { 0 } else { 11 }).rem_euclid(37);
             let joint = place == 0;
             let mitre = (dx.abs() - dy.abs()).abs() < 0.75;
-            let mut colour = boards[(board + if across { 0 } else { 2 }).rem_euclid(4) as usize];
             let is_seam = within < 0.9 || joint || mitre;
-            if is_seam {
-                colour = seam;
-            } else if hash(fx, fy) > 0.9 {
-                colour = shade(colour, 0.86);
-            } else if within < 1.6 {
-                colour = colour.map(|channel| (channel * 1.08).trunc().min(255.0));
-            }
-            if style.aged {
-                // rot darkening whole stretches, split ends, moss creeping from the seams
-                let rot = value_noise(fx * 0.16 + 3.0, fy * 0.16 + 7.0);
-                if rot > 0.66 && !is_seam {
-                    colour = shade(colour, if rot > 0.74 { 0.55 } else { 0.72 });
-                }
-                if !is_seam
-                    && hash(f64::from(along * 3 + board), f64::from(board)) > 0.93
-                    && within > 1.2
-                    && within < 2.0
-                {
-                    colour = hex("#3e2f20");
-                }
-                let mossy = value_noise(fx * 0.09 + 4.0, fy * 0.09 + 9.0);
-                if options.season != Season::Winter
-                    && mossy > 0.6
-                    && (is_seam || within < 1.2 || mossy > 0.72)
-                    && hash(fx * 5.0, fy * 3.0) > 0.25
-                {
-                    colour = hex(["#4f7f33", "#5e903a", "#437028", "#6b9a40"]
-                        [((x * 7 + y * 3) % 4) as usize]);
-                }
-            }
-            // the weather on the boards
-            if wet {
-                colour = shade(colour, 0.7);
-                if value_noise(fx * 0.11 + 11.0, fy * 0.11) > 0.78 {
-                    colour = if hash(fx, fy) > 0.94 {
-                        hex("#aebcc6")
-                    } else {
-                        let puddle = [60.0, 72.0, 84.0];
-                        [0, 1, 2].map(|k| (colour[k] * 0.6 + puddle[k] * 0.4).trunc())
-                    };
-                } else if !is_seam && hash(fx * 3.0, fy) > 0.985 {
-                    colour = hex("#c9d4dc");
-                }
-            }
-            match options.season {
-                Season::Winter => {
-                    let drift = 0.6 * value_noise(fx * 0.08 + 2.0, fy * 0.08 + 5.0)
-                        + 0.4 * value_noise(fx * 0.2, fy * 0.2)
-                        + (depth / if wide { 18.0 } else { 10.0 } - 0.6).max(0.0) * 0.5;
-                    if drift > 0.74 {
-                        colour = if hash(fx, fy * 2.0) > 0.12 {
-                            hex("#f2f6f9")
-                        } else {
-                            hex("#d8e2ea")
-                        };
-                    } else if drift > 0.69 {
-                        colour = colour.map(|channel| (channel * 0.5 + 236.0 * 0.5).trunc());
-                    } else if !is_seam && hash(fx * 7.0, fy * 3.0) > 0.95 {
-                        colour = hex("#e3ebf1");
-                    }
-                }
-                Season::Autumn if hash(fx + 5.0, fy * 3.0) > 0.982 => {
-                    colour = hex(["#c8542a", "#e0952f", "#a83a2a"][((x * y) % 3) as usize]);
-                }
-                Season::Spring if hash(fx + 2.0, fy * 7.0) > 0.988 => colour = hex("#f2b6c9"),
-                _ => {}
-            }
+            let drift = (depth / if wide { 18.0 } else { 10.0 } - 0.6).max(0.0) * 0.5;
+            let colour = weathered_board(
+                style,
+                options,
+                [x, y],
+                board,
+                board + if across { 0 } else { 2 },
+                within,
+                along,
+                is_seam,
+                drift,
+            );
             rim.blend(x, y, colour, 1.0);
             if !joint && place == 2 && within > 1.4 && within < 2.4 {
                 rim.blend(x, y, nail, 1.0);
@@ -886,6 +899,93 @@ fn build_deck(options: &PondOptions, geometry: &Geometry, style: &DeckStyle) -> 
         rim,
         anchors: [[c - middle, c - 18.0], [c + middle, c - 18.0]],
     }
+}
+
+/// One pixel of a deck board, as the season and the weather leave it. `board` counts
+/// boards across the deck, `tone` picks the board's colour, `within` is how far into its
+/// board the pixel lies and `along` how far along it; `drift` adds to the snow's depth.
+#[expect(clippy::too_many_arguments, reason = "one pixel's place on its board")]
+pub(crate) fn weathered_board(
+    style: &DeckStyle,
+    options: &PondOptions,
+    [x, y]: [i32; 2],
+    board: i32,
+    tone: i32,
+    within: f64,
+    along: i32,
+    is_seam: bool,
+    drift: f64,
+) -> Rgb {
+    let (fx, fy) = (f64::from(x), f64::from(y));
+    let mut colour = style.boards.map(hex)[tone.rem_euclid(4) as usize];
+    if is_seam {
+        colour = hex(style.seam);
+    } else if hash(fx, fy) > 0.9 {
+        colour = shade(colour, 0.86);
+    } else if within < 1.6 {
+        colour = colour.map(|channel| (channel * 1.08).trunc().min(255.0));
+    }
+    if style.aged {
+        // rot darkening whole stretches, split ends, moss creeping from the seams
+        let rot = value_noise(fx * 0.16 + 3.0, fy * 0.16 + 7.0);
+        if rot > 0.66 && !is_seam {
+            colour = shade(colour, if rot > 0.74 { 0.55 } else { 0.72 });
+        }
+        if !is_seam
+            && hash(f64::from(along * 3 + board), f64::from(board)) > 0.93
+            && within > 1.2
+            && within < 2.0
+        {
+            colour = hex("#3e2f20");
+        }
+        let mossy = value_noise(fx * 0.09 + 4.0, fy * 0.09 + 9.0);
+        if options.season != Season::Winter
+            && mossy > 0.6
+            && (is_seam || within < 1.2 || mossy > 0.72)
+            && hash(fx * 5.0, fy * 3.0) > 0.25
+        {
+            colour =
+                hex(["#4f7f33", "#5e903a", "#437028", "#6b9a40"][((x * 7 + y * 3) % 4) as usize]);
+        }
+    }
+    // the weather on the boards
+    if options.weather == Weather::Rain {
+        colour = shade(colour, 0.7);
+        if value_noise(fx * 0.11 + 11.0, fy * 0.11) > 0.78 {
+            colour = if hash(fx, fy) > 0.94 {
+                hex("#aebcc6")
+            } else {
+                let puddle = [60.0, 72.0, 84.0];
+                [0, 1, 2].map(|k| (colour[k] * 0.6 + puddle[k] * 0.4).trunc())
+            };
+        } else if !is_seam && hash(fx * 3.0, fy) > 0.985 {
+            colour = hex("#c9d4dc");
+        }
+    }
+    match options.season {
+        Season::Winter => {
+            let drift = 0.6 * value_noise(fx * 0.08 + 2.0, fy * 0.08 + 5.0)
+                + 0.4 * value_noise(fx * 0.2, fy * 0.2)
+                + drift;
+            if drift > 0.74 {
+                colour = if hash(fx, fy * 2.0) > 0.12 {
+                    hex("#f2f6f9")
+                } else {
+                    hex("#d8e2ea")
+                };
+            } else if drift > 0.69 {
+                colour = colour.map(|channel| (channel * 0.5 + 236.0 * 0.5).trunc());
+            } else if !is_seam && hash(fx * 7.0, fy * 3.0) > 0.95 {
+                colour = hex("#e3ebf1");
+            }
+        }
+        Season::Autumn if hash(fx + 5.0, fy * 3.0) > 0.982 => {
+            colour = hex(["#c8542a", "#e0952f", "#a83a2a"][((x * y) % 3) as usize]);
+        }
+        Season::Spring if hash(fx + 2.0, fy * 7.0) > 0.988 => colour = hex("#f2b6c9"),
+        _ => {}
+    }
+    colour
 }
 
 struct Island {
@@ -1124,6 +1224,21 @@ struct Light {
     drift: f64,
 }
 
+/// Where the gas lamps stand. On a deck they stand halfway along its sides, so the
+/// lanterns hang level with the middle of the pond, where the moon is; elsewhere they
+/// stand at the garden's anchors.
+fn euro_feet(options: &PondOptions, edge: &Edge, geometry: &Geometry) -> [[f64; 2]; 2] {
+    if deck_style(options.garden).is_some() {
+        edge.anchors
+            .map(|anchor| [anchor[0], geometry.centre + EURO_LANTERN_HEIGHT])
+    } else {
+        edge.anchors
+    }
+}
+
+/// How far above its foot a gas lamp's lantern hangs.
+pub(crate) const EURO_LANTERN_HEIGHT: f64 = 31.0;
+
 fn plan_lights(options: &PondOptions, edge: &Edge, geometry: &Geometry) -> Vec<Light> {
     let warm = [255.0, 196.0, 110.0];
     let light = |x, y, colour, reflects| Light {
@@ -1136,8 +1251,7 @@ fn plan_lights(options: &PondOptions, edge: &Edge, geometry: &Geometry) -> Vec<L
     };
     let [p, q] = edge.anchors;
     match options.lights {
-        Lights::Euro => edge
-            .anchors
+        Lights::Euro => euro_feet(options, edge, geometry)
             .iter()
             .map(|a| light(a[0], a[1] - 18.0, warm, true))
             .collect(),
@@ -1221,50 +1335,8 @@ fn draw_lights(layer: &mut Layer, options: &PondOptions, stage: &Stage, frame: u
     let side = f64::from(stage.geometry.side);
     match options.lights {
         Lights::Euro => {
-            for anchor in &stage.edge.anchors {
-                // a cast-iron gas lamp: stepped base, post with a collar, ladder bar,
-                // four-pane lantern, crown and finial
-                let (x, y) = (f64::from(round(anchor[0])), f64::from(round(anchor[1])));
-                let lit = [
-                    255.0,
-                    214.0 + f64::from(round(22.0 * (phase * 6.0 + x).sin())),
-                    130.0,
-                ];
-                let hi = [255.0, 248.0, 214.0];
-                let mut r = |dx: f64, dy: f64, w: f64, h: f64, c: Rgb| {
-                    layer.rect(x + dx, y + dy, w, h, c, 1.0)
-                };
-                r(-4.0, -2.0, 9.0, 2.0, ink);
-                r(-3.0, -4.0, 7.0, 2.0, ink2);
-                r(-2.0, -5.0, 5.0, 1.0, ink);
-                r(-1.0, -24.0, 3.0, 19.0, ink);
-                r(0.0, -22.0, 1.0, 1.0, ink2);
-                r(0.0, -16.0, 1.0, 1.0, ink2);
-                r(0.0, -10.0, 1.0, 1.0, ink2);
-                r(-2.0, -14.0, 5.0, 2.0, ink2);
-                r(-2.0, -25.0, 5.0, 1.0, ink2);
-                r(-5.0, -21.0, 11.0, 1.0, ink);
-                r(-5.0, -22.0, 1.0, 1.0, ink);
-                r(5.0, -22.0, 1.0, 1.0, ink);
-                r(-3.0, -27.0, 7.0, 2.0, ink);
-                r(-4.0, -35.0, 9.0, 8.0, ink);
-                r(-3.0, -34.0, 3.0, 6.0, lit);
-                r(1.0, -34.0, 3.0, 6.0, lit);
-                r(-2.0, -33.0, 1.0, 1.0, hi);
-                r(2.0, -33.0, 1.0, 1.0, hi);
-                r(-5.0, -36.0, 11.0, 1.0, ink);
-                r(-4.0, -37.0, 9.0, 1.0, ink);
-                r(-3.0, -38.0, 7.0, 1.0, ink);
-                r(-1.0, -39.0, 3.0, 1.0, ink);
-                r(0.0, -41.0, 1.0, 1.0, ink);
-                r(0.0, -40.0, 1.0, 1.0, ink2);
-                // never wider than the room it has
-                layer.glow(
-                    [x, y - 31.0],
-                    18.0f64.min(y - 31.0).min(x).min(side - x).max(6.0),
-                    [255.0, 190.0, 100.0],
-                    0.42,
-                );
+            for foot in euro_feet(options, stage.edge, stage.geometry) {
+                draw_euro_lamp(layer, foot, phase, side, true);
             }
         }
         Lights::Toro => {
@@ -1391,6 +1463,65 @@ fn draw_lights(layer: &mut Layer, options: &PondOptions, stage: &Stage, frame: u
         }
         Lights::Reflect | Lights::Off => {}
     }
+}
+
+/// A cast-iron gas lamp standing at `foot`: stepped base, post with a collar, ladder
+/// bar, four-pane lantern, crown and finial. Lit, it glows, never wider than the room
+/// `width` leaves it; unlit, its panes are dark glass.
+pub(crate) fn draw_euro_lamp(layer: &mut Layer, foot: [f64; 2], phase: f64, width: f64, lit: bool) {
+    let (ink, ink2) = (hex("#15181f"), hex("#2a2f3a"));
+    let side = width;
+    let (x, y) = (f64::from(round(foot[0])), f64::from(round(foot[1])));
+    let (pane, hi) = if lit {
+        (
+            [
+                255.0,
+                214.0 + f64::from(round(22.0 * (phase * 6.0 + x).sin())),
+                130.0,
+            ],
+            [255.0, 248.0, 214.0],
+        )
+    } else {
+        ([92.0, 104.0, 112.0], [150.0, 166.0, 176.0])
+    };
+    let mut r = |dx: f64, dy: f64, w: f64, h: f64, c: Rgb| layer.rect(x + dx, y + dy, w, h, c, 1.0);
+    r(-4.0, -2.0, 9.0, 2.0, ink);
+    r(-3.0, -4.0, 7.0, 2.0, ink2);
+    r(-2.0, -5.0, 5.0, 1.0, ink);
+    r(-1.0, -24.0, 3.0, 19.0, ink);
+    r(0.0, -22.0, 1.0, 1.0, ink2);
+    r(0.0, -16.0, 1.0, 1.0, ink2);
+    r(0.0, -10.0, 1.0, 1.0, ink2);
+    r(-2.0, -14.0, 5.0, 2.0, ink2);
+    r(-2.0, -25.0, 5.0, 1.0, ink2);
+    r(-5.0, -21.0, 11.0, 1.0, ink);
+    r(-5.0, -22.0, 1.0, 1.0, ink);
+    r(5.0, -22.0, 1.0, 1.0, ink);
+    r(-3.0, -27.0, 7.0, 2.0, ink);
+    r(-4.0, -35.0, 9.0, 8.0, ink);
+    r(-3.0, -34.0, 3.0, 6.0, pane);
+    r(1.0, -34.0, 3.0, 6.0, pane);
+    r(-2.0, -33.0, 1.0, 1.0, hi);
+    r(2.0, -33.0, 1.0, 1.0, hi);
+    r(-5.0, -36.0, 11.0, 1.0, ink);
+    r(-4.0, -37.0, 9.0, 1.0, ink);
+    r(-3.0, -38.0, 7.0, 1.0, ink);
+    r(-1.0, -39.0, 3.0, 1.0, ink);
+    r(0.0, -41.0, 1.0, 1.0, ink);
+    r(0.0, -40.0, 1.0, 1.0, ink2);
+    if !lit {
+        return;
+    }
+    layer.glow(
+        [x, y - EURO_LANTERN_HEIGHT],
+        18.0f64
+            .min(y - EURO_LANTERN_HEIGHT)
+            .min(x)
+            .min(side - x)
+            .max(6.0),
+        [255.0, 190.0, 100.0],
+        0.42,
+    );
 }
 
 // ------------------------------------------------------------------ the water and its seasons
@@ -2061,19 +2192,7 @@ fn compose_frame(
         picture.draw_scaled(&lights, [0, 0], 2);
     }
 
-    PondFrame {
-        side: side as u32,
-        rgba_pixels: (0..picture.pixels.len())
-            .map(|index| {
-                let [red, green, blue, alpha] = picture.read(index);
-                if alpha >= 128 {
-                    [red, green, blue, 255]
-                } else {
-                    [0; 4]
-                }
-            })
-            .collect(),
-    }
+    picture.to_frame()
 }
 
 /// The koi on a 256-pixel layer: scaled and mirrored, then, under the water, tinted the

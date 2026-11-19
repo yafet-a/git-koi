@@ -6,6 +6,26 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-19
+
+### Added
+
+- `--layout garden` (Action input `layout`) draws a wider picture: the pond on
+  the left and a boardwalk out to a deck with the last year's contributions in a
+  planter, the activity overview as a round garden bed, and a bench under a gas
+  lamp. It also writes `koi-pond.gif` and `koi-pond-night.gif`, the pond alone,
+  for narrow screens. `--activity` gives the bed its four counts; the Action
+  reads them from GitHub.
+- `--scale 2` (Action input `scale`) draws each pixel 2 by 2, so the picture
+  stays sharp on high-density screens.
+
+### Changed
+
+- On a deck, the gas lamps (`lights: euro`) stand halfway along the sides, so
+  their lanterns hang level with the middle of the pond, where the moon is.
+- Pond GIFs store only the pixels that change after the first frame, so they are
+  several times smaller with the same pixels.
+
 ## [1.1.0] - 2026-11-18
 
 This fork's first release: the koi gets a pond.

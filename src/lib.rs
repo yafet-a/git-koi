@@ -14,7 +14,9 @@
 //! 6. [`render`] draws a [`render::KoiFrame`], still or swimming, and [`output`] encodes
 //!    it as PNG, SVG, or a looping GIF, with a preview page.
 //! 7. [`pond`] swims those frames through a garden pond that follows the seasons and the
-//!    weather, by day or at night, and [`output::encode_pond_gif`] encodes it.
+//!    weather, by day or at night, [`garden`] lays the pond into a wider garden beside a
+//!    deck that grows the year's contributions, and [`output::encode_pond_gif`] encodes
+//!    either.
 //!
 //! Everything after collection is deterministic: it reads no clock, performs no I/O, and
 //! mutates no input. Callers own files and publication. The `git-koi` command composes
@@ -25,6 +27,7 @@
 pub mod behavior;
 pub mod coat;
 pub mod collect;
+pub mod garden;
 pub mod history;
 pub mod koi;
 pub mod markings;

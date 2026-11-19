@@ -9,12 +9,13 @@ use chrono::{DateTime, NaiveDate};
 use git_koi::behavior::{Behavior, select_behavior};
 use git_koi::coat::KoiBody;
 use git_koi::collect::{GhCli, collect_account_snapshot};
+use git_koi::garden::{Activity, Yard, render_garden};
 use git_koi::history::AccountSnapshot;
 use git_koi::koi::derive_koi_development;
 use git_koi::motion::frame_count;
 use git_koi::output::{encode_gif, encode_png, encode_pond_gif, encode_preview_html};
 use git_koi::pond::{
-    Depth, Drops, Garden, Lights, Moon, PondOptions, PondSize, School, Season, Weather,
+    Depth, Drops, Garden, Lights, Moon, PondFrame, PondOptions, PondSize, School, Season, Weather,
     choose_season, choose_weather, date_number, render_pond, school_bodies, suited_body,
 };
 use git_koi::render::{KoiFrame, render_koi, render_swim_frame};
@@ -40,8 +41,12 @@ The files are replaced only after all of them render.
 Render prints nothing on success; errors go to stderr and exit 1; invalid usage exits 2.
 Swim the koi through a garden pond into DIR/koi.gif, and with --night also
 DIR/koi-night.gif, the same pond at night for viewers in dark mode. The date is the
-snapshot's observation date unless --date YYYY-MM-DD names another. POND OPTIONS,
-each followed by a value, the first value being the default:
+snapshot's observation date unless --date YYYY-MM-DD names another. With --layout
+garden, koi.gif is a wider garden: the pond on the left, a boardwalk out to a deck
+with the last year's contributions in a planter, the activity overview as a garden
+bed, and a bench under a lamp; DIR/koi-pond.gif (and koi-pond-night.gif) is the pond
+alone, for narrow screens. The garden needs --size wide. POND OPTIONS, each followed
+by a value, the first value being the default:
   --season   auto (from the date), {seasons}
   --weather  auto (rain about one day in seven, never in winter), {weathers}
   --garden   {gardens}
@@ -51,6 +56,9 @@ each followed by a value, the first value being the default:
   --depth    {depths}
   --drops    {drops}
   --koi      {schools}
+  --layout   pond, garden
+  --scale    1, 2 (each pixel drawn 2 by 2, sharp on high-density screens)
+  --activity COMMITS,PULL_REQUESTS,ISSUES,REVIEWS (the garden bed; none by default)
   --body, --night-body   auto (suits the season; platinum at night) or a body
 and --night on its own.
 Examples: git-koi collect octocat --output snapshot.json
@@ -184,6 +192,9 @@ struct PondRequest {
     body: Option<KoiBody>,
     night_body: Option<KoiBody>,
     night: bool,
+    garden_layout: bool,
+    scale: u32,
+    activity: Option<Activity>,
 }
 
 /// Read the pond options after `--output-dir DIR`; `None` for anything unknown.
@@ -202,6 +213,9 @@ fn parse_pond_request(arguments: &[Option<&str>]) -> Option<PondRequest> {
         body: None,
         night_body: None,
         night: false,
+        garden_layout: false,
+        scale: 1,
+        activity: None,
     };
     let auto_or = |value: &str, parse: fn(&str) -> Option<KoiBody>| match value {
         "auto" => Some(None),
@@ -229,6 +243,17 @@ fn parse_pond_request(arguments: &[Option<&str>]) -> Option<PondRequest> {
             "--koi" => request.school = School::parse(value)?,
             "--body" => request.body = auto_or(value, parse_body)?,
             "--night-body" => request.night_body = auto_or(value, parse_body)?,
+            "--layout" => {
+                request.garden_layout = match value {
+                    "pond" => false,
+                    "garden" => true,
+                    _ => return None,
+                }
+            }
+            "--scale" => {
+                request.scale = Some(value.parse().ok()?).filter(|scale| [1, 2].contains(scale))?
+            }
+            "--activity" => request.activity = Some(Activity::parse(value)?),
             _ => return None,
         }
     }
@@ -266,6 +291,18 @@ fn draw_ponds(
     let koi_development = derive_koi_development(&account_snapshot)
         .map_err(|development_error| development_error.to_string())?;
     let behavior = select_behavior(&koi_development);
+    if request.garden_layout && request.size != PondSize::Wide {
+        return Err("the garden needs --size wide".to_owned());
+    }
+    let yard = request
+        .garden_layout
+        .then(|| match &account_snapshot.contribution_history {
+            Some(history) => Yard::from_history(history, request.activity),
+            None => Yard {
+                weeks: vec![[None; 7]; 53],
+                activity: request.activity,
+            },
+        });
     let date = request.date.unwrap_or(koi_development.observed_on);
     let season = request.season.unwrap_or_else(|| choose_season(date));
     let weather = request
@@ -309,9 +346,34 @@ fn draw_ponds(
             drops: request.drops,
             day_seed: date_number(date),
         };
-        let gif_bytes = encode_pond_gif(&render_pond(&koi_loops, &pond_options))
-            .map_err(|encoding_error| encoding_error.to_string())?;
-        ponds.push((if night { "koi-night.gif" } else { "koi.gif" }, gif_bytes));
+        let pond_frames = render_pond(&koi_loops, &pond_options);
+        let encode = |frames: &[PondFrame]| {
+            let scaled: Vec<PondFrame> = frames
+                .iter()
+                .map(|frame| frame.scaled(request.scale))
+                .collect();
+            encode_pond_gif(&scaled).map_err(|encoding_error| encoding_error.to_string())
+        };
+        if let Some(yard) = &yard {
+            let garden_frames = render_garden(&pond_frames, &pond_options, yard);
+            ponds.push((
+                if night { "koi-night.gif" } else { "koi.gif" },
+                encode(&garden_frames)?,
+            ));
+            ponds.push((
+                if night {
+                    "koi-pond-night.gif"
+                } else {
+                    "koi-pond.gif"
+                },
+                encode(&pond_frames)?,
+            ));
+        } else {
+            ponds.push((
+                if night { "koi-night.gif" } else { "koi.gif" },
+                encode(&pond_frames)?,
+            ));
+        }
     }
     Ok(ponds)
 }

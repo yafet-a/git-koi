@@ -80,6 +80,8 @@ step.
 | `depth`   | `under` (beneath lily pads, leaves and reflections), `top`                                             | `under`   |
 | `drops`   | `random`, `fixed`                                                                                      | `random`  |
 | `koi`     | `one`, `three`                                                                                         | `one`     |
+| `layout`  | `pond`, `garden` (the pond beside a deck; needs `size: wide`)                                          | `pond`    |
+| `scale`   | `"1"`, `"2"` (each pixel 2 by 2, sharp on high-density screens)                                        | `"1"`     |
 
 Everything outside the pond is transparent, so it sits on GitHub's page in light
 or dark mode rather than as a square.
@@ -130,6 +132,34 @@ old European lamps, stone lanterns, paper lanterns, string lights
 
 ![The koi on top and under the water](docs/scenes/depth.png)
 
+**The garden** (`layout: garden`), by day and at night: the pond on the left, a
+boardwalk out to a deck with the last year's contributions growing in a planter
+(one tuft of moss per day, fuller on busier days, as GitHub's graph shades
+them), the activity overview as a round bed (moss grows along each path as far
+as that share of commits, pull requests, issues and reviews reaches), and a
+bench under a gas lamp, with low lights along the edge. The deck follows the
+seasons like the pond's own. The garden also writes `koi-pond.gif` (and
+`koi-pond-night.gif`), the pond alone, so a README can show the pond on narrow
+screens:
+
+```html
+<picture>
+  <source
+    media="(max-width: 700px) and (prefers-color-scheme: dark)"
+    srcset="koi/koi-pond-night.gif"
+  />
+  <source media="(max-width: 700px)" srcset="koi/koi-pond.gif" />
+  <source media="(prefers-color-scheme: dark)" srcset="koi/koi-night.gif" />
+  <img src="koi/koi.gif" width="752" alt="A koi pond beside a garden deck" />
+</picture>
+```
+
+With `scale: "2"`, keep the `width` at the picture's usual size (752 for the
+garden, 352 for the pond) and the extra pixels make it sharp on high-density
+screens. The explorer page does not show the garden yet.
+
+![The garden by day and at night](docs/scenes/garden.png)
+
 ### What this fork changes
 
 - **`src/pond.rs`** (new) draws the pond around the koi frames git-koi already
@@ -139,9 +169,12 @@ old European lamps, stone lanterns, paper lanterns, string lights
   snapshot's observation date, and nothing reads the clock.
 - **`git-koi pond`** (new subcommand) writes `koi.gif`, and with `--night` also
   `koi-night.gif`. Run `git-koi pond --help` for every flag.
+- **`src/garden.rs`** (new) lays the pond's frames into the wider garden for
+  `--layout garden`.
 - **`output::encode_pond_gif`** (new) encodes the pond with one shared
   255-colour palette (the koi's own GIF uses exact colours, but a pond has
-  gradients and glow).
+  gradients and glow), and after the first frame stores only the pixels that
+  changed, which keeps a sharp `scale: "2"` garden under 2 MB.
 - **`action.yml`** gains the inputs above and calls `git-koi pond`. With
   `scene: none`, the default, it does exactly what the original does.
 - **Releases** come from this fork, so the Action downloads this fork's
